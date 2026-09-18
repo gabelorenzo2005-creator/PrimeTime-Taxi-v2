@@ -13,3 +13,13 @@ class Vehicle(models.Model):
         on_delete=models.PROTECT,
         related_name='vehicles'
     )
+class Driver(models.Model):
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    call_number = models.CharField(max_length=10, unique=True)
+    hack_license_number = models.CharField(max_length=10, unique=True)
+    phone_number = models.CharField(max_length=20, unique=True)
+    email = models.EmailField(max_length=100, unique=True)
+    hack_license_expiration_date = models.DateField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+    
