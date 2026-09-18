@@ -22,6 +22,14 @@ class Driver(models.Model):
     email = models.EmailField(max_length=100, unique=True)
     hack_license_expiration_date = models.DateField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
+
+    user = models.OneToOneField(
+        User, 
+        on_delete=models.PROTECT,
+        related_name='driver_profile',
+        blank=True,
+        null=True
+    )
     
 class Shift(models.Model):
     driver = models.ForeignKey(
