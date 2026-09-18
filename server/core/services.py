@@ -40,3 +40,16 @@ def deactivate_account(user):
 def reactivate_account(user): 
     user.is_active = True
     user.save()
+
+def reset_password(user, new_password):
+    user.set_password(new_password)
+    user.save()
+    user.profile.must_change_password = True
+    user.profile.save()
+
+def change_password(user, new_password):
+    user.set_password(new_password)
+    user.save()
+
+    user.profile.must_change_password = False
+    user.profile.save()
