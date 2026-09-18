@@ -1,5 +1,5 @@
 from django.db import models 
-
+from django.contrib.auth.models import User
 
 class VehicleOwner(models.Model):
     name = models.CharField(max_length=100)
@@ -58,19 +58,24 @@ class Trip(models.Model):
     driver = models.ForeignKey(
         Driver,
         on_delete=models.PROTECT,
-        related_name='trips'
+        related_name='trips',
+        blank=True,
+        null=True
     )
     vehicle = models.ForeignKey(
         Vehicle,
         on_delete=models.PROTECT,
-        related_name='trips'
+        related_name='trips',
+        blank=True,
+        null=True
     )
     shift = models.ForeignKey(
         Shift,
         on_delete=models.PROTECT,
-        related_name='trips'
+        related_name='trips',
+        blank=True,
+        null=True
     )
-
     pick_up_location = models.CharField(max_length=255)
     drop_off_location = models.CharField(max_length=255)
     fare_amount = models.DecimalField(
@@ -81,5 +86,24 @@ class Trip(models.Model):
         )
     pickup_time = models.DateTimeField()
     drop_off_time = models.DateTimeField(blank=True, null=True)
-    trip_notes = models.TextField(blank=True)
+    trip_notes = models.TextField(blank=True, null=True)
 
+class Role(models.TextChoices):
+    DRIVER = 'DRIVER', 'Driver'
+    DISPATCHER = 'DISPATCHER', 'Dispatcher'
+    ADMIN = 'ADMIN', 'Admin'
+    IT = 'IT', 'Technician'
+
+class AccountProfile(models.Model): 
+    user = models.OneToOneField(
+        User, 
+        on_delete=models.CASCADE,
+        related_name='profile'
+        )
+
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices
+        )   
+
+    must_change_password = models.BooleanField(default=False)
