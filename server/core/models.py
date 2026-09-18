@@ -23,3 +23,28 @@ class Driver(models.Model):
     hack_license_expiration_date = models.DateField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     
+class Shift(models.Model):
+    driver = models.ForeignKey(
+        Driver,
+        on_delete=models.PROTECT,
+        related_name='shifts'
+    )
+    
+    vehicle = models.ForeignKey(
+        Vehicle,
+        on_delete=models.PROTECT,
+        related_name='shifts'
+    )
+
+
+    start_time = models.DateTimeField(auto_now_add=True)
+    end_time = models.DateTimeField(blank=True, null=True)
+    turn_in_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        blank=True, 
+        null=True
+        )
+    turn_in_paid = models.BooleanField(default=False)
+    turn_in_cleared = models.BooleanField(default=False)
+
