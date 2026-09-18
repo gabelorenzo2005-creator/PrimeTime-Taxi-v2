@@ -53,5 +53,33 @@ class Shift(models.Model):
         if self.pk is None:
             return None
         return 1000 + self.pk
-        
+
+class Trip(models.Model):
+    driver = models.ForeignKey(
+        Driver,
+        on_delete=models.PROTECT,
+        related_name='trips'
+    )
+    vehicle = models.ForeignKey(
+        Vehicle,
+        on_delete=models.PROTECT,
+        related_name='trips'
+    )
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.PROTECT,
+        related_name='trips'
+    )
+
+    pick_up_location = models.CharField(max_length=255)
+    drop_off_location = models.CharField(max_length=255)
+    fare_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        blank=True,
+        null=True
+        )
+    pickup_time = models.DateTimeField()
+    drop_off_time = models.DateTimeField(blank=True, null=True)
+    trip_notes = models.TextField(blank=True)
 
