@@ -32,3 +32,11 @@ def create_account(first_name, last_name, password, role, driver=None):
         driver.save()
 
     return user, profile 
+
+def deactivate_account(user): 
+    user.is_active = False
+    user.save()
+    
+def reactivate_account(user): 
+    user.is_active = True
+    user.save()
