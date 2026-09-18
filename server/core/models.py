@@ -48,3 +48,10 @@ class Shift(models.Model):
     turn_in_paid = models.BooleanField(default=False)
     turn_in_cleared = models.BooleanField(default=False)
 
+    @property
+    def shift_number(self):
+        if self.pk is None:
+            return None
+        return 1000 + self.pk
+        
+
