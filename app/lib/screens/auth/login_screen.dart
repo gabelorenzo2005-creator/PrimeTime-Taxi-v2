@@ -48,7 +48,7 @@ Future<void> _signIn() async {
 
   switch (user.role) {
   case 'IT':
-    await Navigator.of(context).push(
+    await Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (context) => ItDashboard(user: user),
       ),
