@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../models/app_user.dart';
 
 class AuthService {
     static const String baseUrl = 'http://127.0.0.1:8000';
-    Future<Map<String, dynamic>> signIn({
+    Future<AppUser> signIn({
         required String username, 
         required String password,
     }) async {
@@ -24,6 +25,6 @@ class AuthService {
             throw Exception(data['error'] ?? 'Unable to sign in.');
         }
 
-        return data;
+        return AppUser.fromJson(data);
     }
 }

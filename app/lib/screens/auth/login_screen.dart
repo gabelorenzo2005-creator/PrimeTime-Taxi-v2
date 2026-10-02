@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
 
+import'../it/it_dashboard.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -35,16 +37,30 @@ Future<void> _signIn() async {
   });
 
   try {
-    final userData = await AuthService().signIn(
-      username: _usernameController.text.trim(),
-      password: _passwordController.text,
+    final user = await AuthService().signIn(
+    username: _usernameController.text.trim(),
+    password: _passwordController.text,
     );
 
     if (!mounted) {
-      return;
+    return;
     }
 
-    debugPrint('Logged in: $userData');
+  switch (user.role) {
+  case 'IT':
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ItDashboard(user: user),
+      ),
+    );
+    break;
+
+  default:
+    setState(() {
+      _errorMessage = 'Dashboard not available for role: ${user.roleDisplay}';
+    });
+}
+
   } catch (error) {
     if (!mounted) {
       return;
