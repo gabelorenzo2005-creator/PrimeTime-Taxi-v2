@@ -1,3 +1,4 @@
+from .audit import record
 """Operational API. Role checks remain on the server, regardless of the screen."""
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -6,16 +7,20 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import F
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .api_access import require_role
 from .locations import workspace_locations
+from .development_access import can_preview_dashboards, require_dashboard_preview
 from .notifications import prepare_safety_alert
 from django.conf import settings
-from .models import Role, Driver, Shift, Trip, Vehicle, VehicleOwner, SafetyAlert
+from .models import Role, Driver, Shift, Trip, Vehicle, VehicleOwner, SafetyAlert, PushDevice
 from .serializers import (DriverSerializer, VehicleSerializer, OwnerSerializer, ShiftSerializer, TripSerializer, TripInput, MoneyInput, IdInput, AlertInput, AlertSerializer)
-from .operations import driver_for, start_shift, end_shift, claim_trip, advance_trip, DISPATCH_ROLES, PAYMENT_ROLES
+from .operations import driver_for, start_shift, end_shift, claim_trip, advance_trip, DISPATCH_ROLES, PAYMENT_ROLES, pending_turn_ins
 
 
 def validated(cls, data):
@@ -25,13 +30,30 @@ def validated(cls, data):
 
 
 def user_data(user):
-    return {'username': user.username, 'first_name': user.first_name, 'last_name': user.last_name, 'role': user.profile.role, 'role_display': user.profile.get_role_display(), 'must_change_password': user.profile.must_change_password}
+    return {'username': user.username, 'first_name': user.first_name, 'last_name': user.last_name, 'role': user.profile.role, 'role_display': user.profile.get_role_display(), 'must_change_password': user.profile.must_change_password, 'development_dashboard_access': can_preview_dashboards(user)}
+
+
+class Session(APIView):
+    allow_password_change = True
+    def get(self, request):
+        return Response(user_data(request.user))
 
 
 class Logout(APIView):
+    # Expired sessions may only clean up/revoke; they cannot restore or operate.
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
     allow_password_change = True
     def post(self, request):
-        request.auth.delete()
+        device_id = request.data.get('device_id')
+        if device_id is not None and (isinstance(device_id, bool) or not isinstance(device_id, int) or device_id < 1):
+            raise ValidationError({'error': 'Invalid device ID.'})
+        with transaction.atomic():
+            if device_id is not None:
+                PushDevice.objects.filter(pk=device_id, user=request.user, is_active=True).update(
+                    is_active=False, disabled_at=timezone.now(), revision=F('revision') + 1)
+            request.auth.delete()
+            record(request.user, "account.logged_out", request.user)
         return Response(status=204)
 
 
@@ -55,18 +77,23 @@ class PasswordChange(APIView):
             request.user.profile.save(update_fields=['must_change_password'])
             Token.objects.filter(user=request.user).delete()
             token = Token.objects.create(user=request.user)
+            record(request.user, "account.password_changed", request.user)
         return Response({**user_data(request.user), 'token': token.key})
 
 
 class Workspace(APIView):
     def get(self, request):
+        return self.workspace(request)
+
+    def workspace(self, request, view_role=None):
         now = timezone.now()
         trips = Trip.objects.select_related('driver', 'vehicle', 'shift')
         shifts = Shift.objects.select_related('driver', 'vehicle')
         alerts = SafetyAlert.objects.select_related('driver')
         drivers = Driver.objects.select_related('user__profile')
         me = None
-        if request.user.profile.role == Role.DRIVER:
+        effective_role = view_role or request.user.profile.role
+        if effective_role == Role.DRIVER:
             me = driver_for(request.user)
             trips = trips.filter(Q(driver=me) | Q(status=Trip.Status.OPEN, pickup_time__lte=now))
             shifts = shifts.filter(driver=me)
@@ -80,6 +107,8 @@ class Workspace(APIView):
         driver_records = list(drivers.order_by('call_number'))
         return Response({
             'user': user_data(request.user), 'driver_id': me.pk if me else None, 'server_time': now,
+            'view_as_role': view_role,
+            'turn_in_lock': {'blocked': pending_turn_ins(me).exists(), 'code': 'TURN_IN_REQUIRED'} if me else None,
             'trips': TripSerializer(list(active) + list(history), many=True).data,
             'shifts': ShiftSerializer(shift_records, many=True).data,
             'alerts': AlertSerializer(alert_records, many=True).data,
@@ -89,6 +118,12 @@ class Workspace(APIView):
             'vehicles': VehicleSerializer(Vehicle.objects.select_related('owner').order_by('car_number'), many=True).data,
             'owners': OwnerSerializer(VehicleOwner.objects.order_by('name'), many=True).data if not me else [],
         })
+
+
+class DevelopmentDashboard(Workspace):
+    def get(self, request):
+        role = require_dashboard_preview(request.user, request.query_params.get('role'))
+        return self.workspace(request, view_role=role)
 
 
 class Shifts(APIView):
@@ -111,9 +146,11 @@ class ShiftAction(APIView):
                 result = get_object_or_404(Shift.objects.select_for_update(), pk=pk)
                 if not result.end_time:
                     raise ValidationError({'error': 'The shift must end before reviewing its turn-in.'})
+                previous = {'paid': result.turn_in_paid, 'cleared': result.turn_in_cleared}
                 result.turn_in_paid = action == 'approve'
                 result.turn_in_cleared = action == 'approve'
                 result.save(update_fields=['turn_in_paid', 'turn_in_cleared'])
+                record(request.user, f'turn_in.{action}', result, {'before': previous, 'after': {'paid': result.turn_in_paid, 'cleared': result.turn_in_cleared}})
         else:
             raise ValidationError({'error': 'Unknown shift action.'})
         return Response(ShiftSerializer(result).data)
@@ -124,7 +161,10 @@ class Trips(APIView):
         require_role(request.user, *DISPATCH_ROLES)
         data = validated(TripInput, request.data)
         data.setdefault('pickup_time', timezone.now())
-        return Response(TripSerializer(Trip.objects.create(**data)).data, status=201)
+        with transaction.atomic():
+            trip = Trip.objects.create(**data)
+            record(request.user, 'trip.created', trip)
+        return Response(TripSerializer(trip).data, status=201)
 
 
 class TripAction(APIView):
@@ -158,6 +198,7 @@ class Alerts(APIView):
         with transaction.atomic():
             result = SafetyAlert.objects.create(driver=driver_for(request.user), **data)
             prepare_safety_alert(result)
+            record(request.user, "alert.created", result)
         return Response(AlertSerializer(result).data, status=201)
 
 
@@ -175,6 +216,7 @@ class AlertAction(APIView):
                 result.resolved_at = timezone.now()
                 result.resolved_by = request.user
             result.save()
+            record(request.user, f"alert.{action}", result)
         return Response(AlertSerializer(result).data)
 
 
@@ -189,7 +231,9 @@ class Records(APIView):
         instance = get_object_or_404(model, pk=pk) if pk else None
         serializer = cls(instance, data=request.data, partial=pk is not None)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            saved = serializer.save()
+            record(request.user, "record.updated" if pk else "record.created", saved, {"fields": sorted(serializer.validated_data)})
         return Response(serializer.data, status=200 if pk else 201)
     def post(self, request, resource):
         return self.save_record(request, resource)

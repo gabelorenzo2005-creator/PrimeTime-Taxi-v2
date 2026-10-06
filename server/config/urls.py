@@ -1,16 +1,28 @@
 from django.contrib import admin
 from django.urls import path
-from core import views, api, mobile_api
+from core import views, api, mobile_api, history_api
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
     path('api/login/', views.login_view, name='login'),
+    path('api/session/', api.Session.as_view()),
     path('api/logout/', api.Logout.as_view()),
     path('api/password/', api.PasswordChange.as_view()),
     path('api/gps/', mobile_api.DriverGPS.as_view()),
     path('api/devices/', mobile_api.Devices.as_view()),
     path('api/devices/<int:pk>/', mobile_api.DeviceDetail.as_view()),
+    path('api/development/dashboard/', api.DevelopmentDashboard.as_view()),
+    path('api/history/alerts/', history_api.AlertHistory.as_view()),
+    path('api/history/alerts/<int:pk>/', history_api.AlertHistory.as_view()),
+    path('api/history/trips/', history_api.TripHistory.as_view()),
+    path('api/history/trips/<int:pk>/', history_api.TripHistory.as_view()),
+    path('api/history/shifts/', history_api.ShiftHistory.as_view()),
+    path('api/history/shifts/<int:pk>/', history_api.ShiftHistory.as_view()),
+    path('api/reservations/', history_api.Reservations.as_view()),
+    path('api/vehicles/<int:pk>/notes/', history_api.VehicleNotes.as_view()),
+    path('api/history/shifts/<int:pk>/turn-in/', history_api.TurnInHistory.as_view()),
+    path('api/audit/', history_api.AuditHistory.as_view()),
     path('api/workspace/', api.Workspace.as_view()),
     path('api/shifts/', api.Shifts.as_view()),
     path('api/shifts/<int:pk>/<str:action>/', api.ShiftAction.as_view()),

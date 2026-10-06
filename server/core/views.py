@@ -8,6 +8,7 @@ from datetime import timedelta
 from rest_framework.response import Response
 from rest_framework import status
 from .models import AccountProfile, Role
+from .development_access import can_preview_dashboards
 
 
 def home(request):
@@ -66,6 +67,7 @@ def login_view(request):
             "role": profile.role,
             "role_display": profile.get_role_display(),
             "must_change_password": profile.must_change_password,
+            "development_dashboard_access": can_preview_dashboards(user),
         },
         status=status.HTTP_200_OK,
     )

@@ -11,3 +11,4 @@ db.sqlite3
 *.p12
 *.mobileprovision
 private-credentials/
+server/.local-backups/

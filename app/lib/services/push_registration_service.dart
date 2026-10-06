@@ -8,13 +8,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
 
 /// iOS APNs registration only. Android intentionally has no push provider.
-class PushRegistrationService {
+abstract class PushTransport {
+  Future<void> start();
+  Future<void> register();
+  Future<int?> prepareLogout();
+  Future<void> forgetRegistration();
+  void suspend();
+}
+
+/// Android intentionally supplies no invented remote-push implementation.
+class NoPushTransport implements PushTransport {
+  @override
+  Future<void> start() async {}
+  @override
+  Future<void> register() async {}
+  @override
+  Future<int?> prepareLogout() async => null;
+  @override
+  Future<void> forgetRegistration() async {}
+  @override
+  void suspend() {}
+}
+
+class PushRegistrationService implements PushTransport {
   static final instance = PushRegistrationService();
   static const _channel = MethodChannel('primetime/apns');
   bool _enabled = false;
   bool _registering = false;
   Completer<void>? _finished;
   Timer? _retry;
+  @override
   Future<void> start() async {
     if (!Platform.isIOS) return;
     _enabled = true;
@@ -24,6 +47,7 @@ class PushRegistrationService {
     await register();
   }
 
+  @override
   Future<void> register() async {
     if (!_enabled || _registering || ApiClient.token == null) return;
     _registering = true;
@@ -72,27 +96,31 @@ class PushRegistrationService {
     }
   }
 
-  Future<void> unregister() async {
-    if (!Platform.isIOS) return;
-    _enabled = false;
-    _retry?.cancel();
+  @override
+  Future<int?> prepareLogout() async {
+    suspend();
+    if (!Platform.isIOS) return null;
+    try {
+      await _channel.invokeMethod<void>('unregister');
+    } catch (_) {}
     if (_registering) await _finished?.future;
     final prefs = await SharedPreferences.getInstance();
-    final id = prefs.getInt('apns_device_id');
-    if (id != null) {
-      try {
-        await ApiClient.request('devices/$id/', method: 'DELETE');
-      } on ApiException catch (e) {
-        if (e.status != 404) rethrow;
-      }
-      await prefs.remove('apns_device_id');
-    }
-    suspend();
+    return prefs.getInt('apns_device_id');
   }
 
+  @override
+  Future<void> forgetRegistration() async {
+    if (!Platform.isIOS) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('apns_device_id');
+  }
+
+  @override
   void suspend() {
     _enabled = false;
     _retry?.cancel();
     _channel.setMethodCallHandler(null);
   }
 }
+
+PushTransport platformPushTransport() => Platform.isIOS ? PushRegistrationService.instance : NoPushTransport();

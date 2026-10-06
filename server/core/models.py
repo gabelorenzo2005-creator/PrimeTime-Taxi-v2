@@ -140,6 +140,14 @@ class AccountProfile(models.Model):
         )   
 
     must_change_password = models.BooleanField(default=False)
+    development_dashboard_access = models.BooleanField(default=False, editable=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['development_dashboard_access'],
+            condition=models.Q(development_dashboard_access=True),
+            name='one_development_dashboard_account')]
+
 
 
 class SafetyAlert(models.Model):
@@ -261,3 +269,20 @@ class PushAttempt(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['delivery', 'number'], name='one_number_per_push_attempt')]
+
+
+class AuditRecord(models.Model):
+    """Append-only through the API; details are explicit safe operational fields."""
+    actor = models.ForeignKey(User, on_delete=models.PROTECT)
+    action = models.CharField(max_length=80)
+    subject_type = models.CharField(max_length=80)
+    subject_id = models.PositiveBigIntegerField()
+    details = models.JSONField(default=dict)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+
+class VehicleNote(models.Model):
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT, related_name='history_notes')
+    author = models.ForeignKey(User, on_delete=models.PROTECT)
+    text = models.TextField(max_length=5000)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)

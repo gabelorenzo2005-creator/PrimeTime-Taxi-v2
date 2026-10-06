@@ -1,14 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
-import '../../services/api_client.dart';
-import '../../models/app_user.dart';
-import 'password_screen.dart';
-
-import '../admin/admin_dashboard.dart';
-import '../dispatcher/dispatcher_dashboard.dart';
-import '../driver/driver_dashboard.dart';
-import '../it/it_dashboard.dart';
+import 'account_navigation.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -45,7 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      var user = await AuthService().signIn(
+      final user = await AuthService().signIn(
         username: _usernameController.text.trim(),
         password: _passwordController.text,
       );
@@ -54,53 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      if (user.mustChangePassword) {
-        final changed = await Navigator.of(context).push<AppUser>(
-          MaterialPageRoute(builder: (_) => const PasswordScreen()),
-        );
-        if (!mounted) return;
-        if (changed == null) {
-          try {
-            await AuthService().signOut();
-          } catch (_) {
-            ApiClient.token = null;
-          }
-          return;
-        }
-        user = changed;
-      }
-      if (!mounted) return;
-      switch (user.role.toUpperCase()) {
-        case 'DRIVER':
-          await Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => DriverDashboard(user: user)),
-          );
-          break;
-
-        case 'DISPATCHER':
-          await Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => DispatcherDashboard(user: user)),
-          );
-          break;
-
-        case 'ADMIN':
-          await Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => AdminDashboard(user: user)),
-          );
-          break;
-
-        case 'IT':
-          await Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => ItDashboard(user: user)),
-          );
-          break;
-
-        default:
-          setState(() {
-            _errorMessage =
-                'Dashboard not available for role: ${user.roleDisplay}';
-          });
-      }
+      await openAccount(context, user);
     } catch (error) {
       if (!mounted) {
         return;

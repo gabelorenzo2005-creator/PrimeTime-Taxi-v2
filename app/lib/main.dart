@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'screens/auth/login_screen.dart';
+import 'screens/auth/session_gate.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const PrimeTimeTaxiApp());
 }
 
@@ -15,12 +16,10 @@ class PrimeTimeTaxiApp extends StatelessWidget {
       title: 'Prime Time Taxi',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const LoginScreen(),
+      home: const SessionGate(),
     );
   }
 }

@@ -35,6 +35,7 @@ class NativeDriverLocationService implements DriverLocationService {
   DateTime? _startedAt;
   int _generation = 0;
   bool _sending = false;
+  DateTime? _latestFixTime;
 
   bool get supported =>
       positions != null || Platform.isIOS || Platform.isAndroid;
@@ -93,20 +94,14 @@ class NativeDriverLocationService implements DriverLocationService {
       status.value = 'Waiting for a real GPS fix';
       _subscription = (positions?.call() ?? _positions()).listen(
         (fix) => _accept(fix, generation),
-        onError: (_) {
-          unawaited(
-            stop().then((_) {
-              status.value = 'Location unavailable. Check Settings and retry.';
-            }),
-          );
-        },
-        onDone: () {
-          unawaited(
-            stop().then((_) {
-              status.value = 'Location service stopped. Retry tracking.';
-            }),
-          );
-        },
+        onError: (_) => _streamEnded(
+          generation,
+          'Location unavailable. Check Settings and retry.',
+        ),
+        onDone: () => _streamEnded(
+          generation,
+          'Location service stopped. Retry tracking.',
+        ),
       );
       _retry = Timer.periodic(retryInterval, (_) => unawaited(_flush()));
     } catch (_) {
@@ -115,6 +110,16 @@ class NativeDriverLocationService implements DriverLocationService {
         status.value = 'Location unavailable. Check Settings and retry.';
       }
     }
+  }
+
+  void _streamEnded(int generation, String message) {
+    if (generation != _generation) return;
+    final stoppedGeneration = _generation + 1;
+    unawaited(
+      stop().then((_) {
+        if (_generation == stoppedGeneration) status.value = message;
+      }),
+    );
   }
 
   void _accept(Position p, int generation) {
@@ -132,10 +137,8 @@ class NativeDriverLocationService implements DriverLocationService {
       return;
     }
     final timestamp = p.timestamp.toUtc().toIso8601String();
-    if (_pending != null &&
-        timestamp.compareTo(_pending!['timestamp'] as String) <= 0) {
-      return;
-    }
+    if (_latestFixTime != null && !p.timestamp.isAfter(_latestFixTime!)) return;
+    _latestFixTime = p.timestamp;
     _pending = {
       'shift_id': _shift,
       'latitude': p.latitude,
@@ -195,6 +198,7 @@ class NativeDriverLocationService implements DriverLocationService {
     _generation++;
     _shift = null;
     _pending = null;
+    _latestFixTime = null;
     _retry?.cancel();
     _retry = null;
     final subscription = _subscription;

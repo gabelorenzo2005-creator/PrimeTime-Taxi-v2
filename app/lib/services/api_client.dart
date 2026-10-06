@@ -19,12 +19,14 @@ class ApiClient {
   static String? token;
   static Future<Map<String, dynamic>> request(
     String path, {
+    String? authToken,
     String method = 'GET',
     Map<String, dynamic>? body,
   }) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Token $token',
+      if ((authToken ?? token) != null)
+        'Authorization': 'Token ${authToken ?? token}',
     };
     final uri = Uri.parse('$baseUrl/api/$path');
     try {

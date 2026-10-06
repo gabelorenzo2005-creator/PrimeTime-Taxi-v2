@@ -26,9 +26,7 @@ class RoleDashboard extends StatelessWidget {
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Center(
-              child: Text(user.fullName),
-            ),
+            child: Center(child: Text(user.fullName)),
           ),
           IconButton(
             tooltip: 'Sign out',
@@ -56,16 +54,11 @@ class RoleDashboard extends StatelessWidget {
                     Text(
                       title,
                       textAlign: TextAlign.center,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium
+                      style: Theme.of(context).textTheme.headlineMedium
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      description,
-                      textAlign: TextAlign.center,
-                    ),
+                    Text(description, textAlign: TextAlign.center),
                     if (actions.isNotEmpty) ...[
                       const SizedBox(height: 24),
                       Wrap(
@@ -78,9 +71,7 @@ class RoleDashboard extends StatelessWidget {
                     const SizedBox(height: 24),
                     const Divider(),
                     const SizedBox(height: 12),
-                    Text(
-                      'Signed in as ${user.username} • ${user.roleDisplay}',
-                    ),
+                    Text('Signed in as ${user.username} • ${user.roleDisplay}'),
                   ],
                 ),
               ),

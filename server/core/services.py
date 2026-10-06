@@ -1,7 +1,8 @@
 from django.contrib.auth.models import User
 from django.db import transaction
 from rest_framework.authtoken.models import Token
-from .models import AccountProfile, Role 
+from .models import AccountProfile, Role
+from .audit import record
 
 def generate_username(first_name, last_name): 
     base_username = f"{last_name}{first_name}".lower()
@@ -14,7 +15,7 @@ def generate_username(first_name, last_name):
     return username
 
 @transaction.atomic
-def create_account(first_name, last_name, password, role, driver=None): 
+def create_account(first_name, last_name, password, role, driver=None, *, actor=None):
     if role not in Role.values:
         raise ValueError('Choose a valid account role.')
     if driver is not None and (role != Role.DRIVER or driver.user_id is not None):
@@ -36,28 +37,42 @@ def create_account(first_name, last_name, password, role, driver=None):
         driver.user = user
         driver.save()
 
-    return user, profile 
+    if actor is not None:
+        record(actor, 'account.created', user, {'role': role, 'driver_id': driver.pk if driver else None})
+    return user, profile
 
-def deactivate_account(user): 
+@transaction.atomic
+def deactivate_account(user, *, actor=None):
     user.is_active = False
     user.save()
     Token.objects.filter(user=user).delete()
-    
-def reactivate_account(user): 
+    if actor is not None:
+        record(actor, 'account.deactivated', user)
+
+@transaction.atomic
+def reactivate_account(user, *, actor=None):
     user.is_active = True
     user.save()
+    if actor is not None:
+        record(actor, 'account.reactivated', user)
 
-def reset_password(user, new_password):
+@transaction.atomic
+def reset_password(user, new_password, *, actor=None):
     user.set_password(new_password)
     user.save()
     Token.objects.filter(user=user).delete()
     user.profile.must_change_password = True
     user.profile.save()
+    if actor is not None:
+        record(actor, 'account.password_reset', user)
 
-def change_password(user, new_password):
+@transaction.atomic
+def change_password(user, new_password, *, actor=None):
     user.set_password(new_password)
     user.save()
     Token.objects.filter(user=user).delete()
 
     user.profile.must_change_password = False
     user.profile.save()
+    if actor is not None:
+        record(actor, 'account.password_changed', user)

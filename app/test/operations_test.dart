@@ -4,6 +4,8 @@ import 'package:app/main.dart';
 import 'package:app/models/app_user.dart';
 import 'package:app/screens/operations_dashboard.dart';
 import 'package:app/services/api_client.dart';
+import 'package:app/services/auth_service.dart';
+import 'package:app/services/session_store.dart';
 import 'package:app/services/location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -170,7 +172,9 @@ void main() {
   ) async {
     await http.runWithClient(
       () async {
+        AuthService.store = MemorySessionStore();
         await tester.pumpWidget(const PrimeTimeTaxiApp());
+        await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextFormField).at(0), 'tester');
         await tester.enterText(find.byType(TextFormField).at(1), 'oldpassword');
         await tester.tap(find.text('Sign In'));

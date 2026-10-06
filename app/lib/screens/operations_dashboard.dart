@@ -6,7 +6,6 @@ import '../models/app_user.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
-import '../services/push_registration_service.dart';
 import 'auth/login_screen.dart';
 import 'auth/password_screen.dart';
 
@@ -29,6 +28,7 @@ class _OperationsDashboardState extends State<OperationsDashboard>
     with WidgetsBindingObserver {
   late final DriverLocationService _location;
   bool _nativeInitialized = false;
+  bool _resumeTracking = false;
   int _workspaceRevision = 0;
   Record? _data;
   String? _error;
@@ -39,9 +39,21 @@ class _OperationsDashboardState extends State<OperationsDashboard>
   Timer? _poller;
   DateTime? _lastRefresh;
   bool _leaving = false;
-  bool get _driver => widget.user.role == 'DRIVER';
-  bool get _manage => ['ADMIN', 'IT'].contains(widget.user.role);
-  bool get _dispatch => ['ADMIN', 'DISPATCHER'].contains(widget.user.role);
+  String? _viewAsRole;
+  bool _previewDenied = false;
+  static const _dashboardRoles = {
+    'DRIVER': 'Driver',
+    'DISPATCHER': 'Dispatcher',
+    'ADMIN': 'Admin',
+    'IT': 'Technician',
+  };
+  String get _uiRole => _viewAsRole ?? widget.user.role;
+  bool get _developerAccess =>
+      !_previewDenied &&
+      _data?['user']?['development_dashboard_access'] == true;
+  bool get _driver => _uiRole == 'DRIVER';
+  bool get _manage => ['ADMIN', 'IT'].contains(_uiRole);
+  bool get _dispatch => ['ADMIN', 'DISPATCHER'].contains(_uiRole);
   List<Record> _records(String key) => ((_data?[key] as List?) ?? [])
       .map((e) => Map<String, dynamic>.from(e as Map))
       .toList();
@@ -63,6 +75,7 @@ class _OperationsDashboardState extends State<OperationsDashboard>
   void initState() {
     super.initState();
     _location = widget.locationService ?? NativeDriverLocationService();
+    AuthService.tracking = _location;
     WidgetsBinding.instance.addObserver(this);
     _refresh();
     _poller = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -75,21 +88,32 @@ class _OperationsDashboardState extends State<OperationsDashboard>
     _poller?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_location.stop());
-    PushRegistrationService.instance.suspend();
+    if (identical(AuthService.tracking, _location)) {
+      AuthService.tracking = null;
+      AuthService.push.suspend();
+    }
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _resumeTracking = true;
+      _poller ??= Timer.periodic(const Duration(seconds: 10), (_) {
+        if (!_busy) _refresh();
+      });
       unawaited(_refresh());
-      unawaited(PushRegistrationService.instance.register());
+      unawaited(AuthService.push.register());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _poller?.cancel();
+      _poller = null;
     }
   }
 
   Future<void> _startTracking() async {
     final shift = _myShift;
-    if (_driver && shift != null) {
+    if (widget.user.role == 'DRIVER' && _driver && shift != null) {
       await _location.start(
         shift['id'] as int,
         DateTime.parse(shift['start_time'] as String),
@@ -97,12 +121,13 @@ class _OperationsDashboardState extends State<OperationsDashboard>
     }
   }
 
-  void _login() {
+  void _login({bool cleanup = true}) {
     if (!mounted || _leaving) return;
     _leaving = true;
     unawaited(_location.stop());
-    PushRegistrationService.instance.suspend();
-    ApiClient.token = null;
+    AuthService.push.suspend();
+    if (cleanup) unawaited(AuthService().signOut());
+    _data = null;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
@@ -113,8 +138,13 @@ class _OperationsDashboardState extends State<OperationsDashboard>
     if (_loading || _leaving) return;
     setState(() => _loading = true);
     final revision = _workspaceRevision;
+    var restoreNormalWorkspace = false;
     try {
-      final result = await ApiClient.request('workspace/');
+      final result = await ApiClient.request(
+        _viewAsRole == null
+            ? 'workspace/'
+            : 'development/dashboard/?role=$_viewAsRole',
+      );
       if (!mounted || _leaving || revision != _workspaceRevision) return;
       setState(() {
         _data = result;
@@ -122,11 +152,12 @@ class _OperationsDashboardState extends State<OperationsDashboard>
         _lastRefresh = DateTime.now();
       });
       if (_driver && _myShift == null) await _location.stop();
-      if (!_nativeInitialized) {
+      if (!_nativeInitialized || _resumeTracking) {
+        _resumeTracking = false;
         _nativeInitialized = true;
         await _startTracking();
         if (mounted && !_leaving) {
-          unawaited(PushRegistrationService.instance.start());
+          unawaited(AuthService.push.start());
         }
       }
     } catch (error) {
@@ -135,9 +166,63 @@ class _OperationsDashboardState extends State<OperationsDashboard>
         _login();
         return;
       }
+      if (error is ApiException && error.status == 403 && _viewAsRole != null) {
+        setState(() {
+          _viewAsRole = null;
+          _previewDenied = true;
+          _data = null;
+          _tab = 0;
+        });
+        restoreNormalWorkspace = true;
+      }
       setState(() => _error = error.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+    if (restoreNormalWorkspace && mounted && !_leaving) await _refresh();
+  }
+
+  Future<void> _viewDashboardAs(String role) async {
+    if (!_developerAccess || _busy || _loading) return;
+    setState(() => _busy = true);
+    _workspaceRevision++;
+    try {
+      final result = await ApiClient.request(
+        'development/dashboard/?role=$role',
+      );
+      if (!mounted || _leaving) return;
+      if (result['user']?['development_dashboard_access'] != true ||
+          result['view_as_role'] != role) {
+        throw const ApiException(
+          'Development preview authorization was not confirmed.',
+          403,
+        );
+      }
+      setState(() {
+        _viewAsRole = role == widget.user.role ? null : role;
+        _data = result;
+        _tab = 0;
+        _tripFilter = 'Active';
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted || _leaving) return;
+      if (error is ApiException && error.status == 401) {
+        _login();
+        return;
+      }
+      if (error is ApiException && error.status == 403) {
+        setState(() {
+          _previewDenied = true;
+          _viewAsRole = null;
+          _data = null;
+          _tab = 0;
+        });
+        await _refresh();
+      }
+      _notice(error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -156,6 +241,7 @@ class _OperationsDashboardState extends State<OperationsDashboard>
         method: method,
         body: body ?? {},
       );
+      if (!mounted || _leaving) return;
       _workspaceRevision++;
       if (onSuccess != null) await onSuccess(result);
       if (!mounted) return;
@@ -208,7 +294,10 @@ class _OperationsDashboardState extends State<OperationsDashboard>
         body: {'vehicle_id': int.parse(data['vehicle_id'])},
         message: 'Shift started',
         onSuccess: (shift) async {
-          if (_driver && shift['id'] != null && shift['start_time'] != null) {
+          if (widget.user.role == 'DRIVER' &&
+              _driver &&
+              shift['id'] != null &&
+              shift['start_time'] != null) {
             await _location.start(
               shift['id'] as int,
               DateTime.parse(shift['start_time'] as String),
@@ -332,16 +421,18 @@ class _OperationsDashboardState extends State<OperationsDashboard>
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await PushRegistrationService.instance.unregister();
+      _leaving = true;
+      _poller?.cancel();
       await AuthService().signOut();
-      _login();
+      _leaving = false;
+      _login(cleanup: false);
     } catch (error) {
       if (error is ApiException && error.status == 401) {
         _login();
         return;
       }
-      unawaited(PushRegistrationService.instance.start());
-      _notice('Could not sign out on the server: $error');
+      _leaving = false;
+      _login();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -378,8 +469,17 @@ class _OperationsDashboardState extends State<OperationsDashboard>
     ];
     return Scaffold(
       appBar: AppBar(
-        title: Text('PrimeTime • ${widget.user.roleDisplay}'),
+        title: Text(
+          'PrimeTime • ${_dashboardRoles[_uiRole] ?? widget.user.roleDisplay}',
+        ),
         actions: [
+          if (_driver && _data?['turn_in_lock']?['blocked'] == true)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Your required turn-in needs Admin or IT clearance before another shift or trip. You can still view your history.',
+              ),
+            ),
           if (_driver)
             IconButton(
               tooltip: 'Send safety alert',
@@ -413,6 +513,58 @@ class _OperationsDashboardState extends State<OperationsDashboard>
       ),
       body: Column(
         children: [
+          if (_developerAccess)
+            Material(
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'DEVELOPMENT ACCESS • Authenticated as ${widget.user.roleDisplay}',
+                    ),
+                    Text(
+                      'Viewing ${_dashboardRoles[_uiRole]} dashboard • API permissions remain ${widget.user.roleDisplay}',
+                    ),
+                    Wrap(
+                      spacing: 16,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        const Text('View Dashboard As'),
+                        DropdownButton<String>(
+                          key: const ValueKey('view-dashboard-as'),
+                          value: _uiRole,
+                          items: [
+                            for (final entry in _dashboardRoles.entries)
+                              DropdownMenuItem(
+                                value: entry.key,
+                                child: Text(entry.value),
+                              ),
+                          ],
+                          onChanged: _busy || _loading
+                              ? null
+                              : (role) {
+                                  if (role != null) _viewDashboardAs(role);
+                                },
+                        ),
+                        if (_viewAsRole != null)
+                          OutlinedButton(
+                            onPressed: _busy || _loading
+                                ? null
+                                : () => _viewDashboardAs('IT'),
+                            child: const Text('Return to Technician'),
+                          ),
+                      ],
+                    ),
+                    if (_driver && widget.user.role != 'DRIVER')
+                      const Text(
+                        'Driver layout preview only. GPS is off; Driver-only API actions remain protected.',
+                      ),
+                  ],
+                ),
+              ),
+            ),
           if (_driver)
             ValueListenableBuilder<String>(
               valueListenable: _location.status,
