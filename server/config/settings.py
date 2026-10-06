@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +27,7 @@ SECRET_KEY = 'django-insecure-kx)s*d70@gfycqk+o%ev&v-ilmu359j+b*%3x-^apxo^o59l#%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
 
 
 # Application definition
@@ -38,7 +40,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'core',
-    'rest_framework'
+    'rest_framework',
+    'rest_framework.authtoken'
 ]
 
 MIDDLEWARE = [
@@ -127,3 +130,36 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# API access is authenticated by default; only login opts out.
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': ['core.api_access.ExpiringTokenAuthentication'],
+    'DEFAULT_PERMISSION_CLASSES': ['core.api_access.CompanyAccountPermission'],
+    'EXCEPTION_HANDLER': 'core.api_access.exception_handler',
+    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+}
+
+
+# GPS presence is computed from both fix age and receipt age, in seconds.
+GPS_ONLINE_SECONDS = int(os.environ.get('GPS_ONLINE_SECONDS', '60'))
+GPS_OFFLINE_SECONDS = int(os.environ.get('GPS_OFFLINE_SECONDS', '300'))
+GPS_MAX_FUTURE_SECONDS = int(os.environ.get('GPS_MAX_FUTURE_SECONDS', '30'))
+if not (0 < GPS_ONLINE_SECONDS < GPS_OFFLINE_SECONDS and GPS_MAX_FUTURE_SECONDS >= 0):
+    raise ImproperlyConfigured('GPS thresholds must satisfy 0 < online < offline; future tolerance must be non-negative.')
+
+# Registration allowlist only. This setting does not enable delivery or load Apple credentials.
+APNS_ALLOWED_TOPICS = [topic.strip() for topic in os.environ.get('APNS_ALLOWED_TOPICS', '').split(',') if topic.strip()]
+
+
+# Direct APNs is opt-in; worker startup validates credentials before touching events.
+APNS_ENABLED = os.environ.get('APNS_ENABLED', '0') == '1'
+APNS_TEAM_ID = os.environ.get('APNS_TEAM_ID', '')
+APNS_KEY_ID = os.environ.get('APNS_KEY_ID', '')
+APNS_PRIVATE_KEY_PATH = os.environ.get('APNS_PRIVATE_KEY_PATH', '')
+APNS_MAX_ATTEMPTS = int(os.environ.get('APNS_MAX_ATTEMPTS', '5'))
+APNS_EVENT_TTL_SECONDS = int(os.environ.get('APNS_EVENT_TTL_SECONDS', '3600'))
+APNS_REQUEST_TIMEOUT_SECONDS = int(os.environ.get('APNS_REQUEST_TIMEOUT_SECONDS', '10'))
+APNS_LEASE_SECONDS = int(os.environ.get('APNS_LEASE_SECONDS', '120'))
+if not (APNS_MAX_ATTEMPTS > 0 and APNS_EVENT_TTL_SECONDS > 0 and APNS_REQUEST_TIMEOUT_SECONDS > 0 and APNS_LEASE_SECONDS > APNS_REQUEST_TIMEOUT_SECONDS):
+    raise ImproperlyConfigured('APNs limits must be positive and its lease longer than the request timeout.')

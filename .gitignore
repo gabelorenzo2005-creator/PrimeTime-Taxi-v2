@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 .DS_Store
 db.sqlite3
+
+# Private signing/provider material belongs outside this checkout.
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision
+private-credentials/

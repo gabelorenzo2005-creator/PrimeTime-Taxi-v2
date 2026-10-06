@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/api_client.dart';
+import '../../models/app_user.dart';
+import 'password_screen.dart';
 
-import'../it/it_dashboard.dart';
+import '../admin/admin_dashboard.dart';
+import '../dispatcher/dispatcher_dashboard.dart';
+import '../driver/driver_dashboard.dart';
+import '../it/it_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -26,176 +32,206 @@ class _LoginScreenState extends State<LoginScreen> {
     _passwordController.dispose();
     super.dispose();
   }
-Future<void> _signIn() async {
-  if (!_formKey.currentState!.validate()) {
-    return;
-  }
 
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-  });
-
-  try {
-    final user = await AuthService().signIn(
-    username: _usernameController.text.trim(),
-    password: _passwordController.text,
-    );
-
-    if (!mounted) {
-    return;
-    }
-
-  switch (user.role) {
-  case 'IT':
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => ItDashboard(user: user),
-      ),
-    );
-    break;
-
-  default:
-    setState(() {
-      _errorMessage = 'Dashboard not available for role: ${user.roleDisplay}';
-    });
-}
-
-  } catch (error) {
-    if (!mounted) {
+  Future<void> _signIn() async {
+    if (_isLoading) return;
+    if (!_formKey.currentState!.validate()) {
       return;
     }
 
     setState(() {
-      _errorMessage = error.toString().replaceFirst('Exception: ', '');
+      _isLoading = true;
+      _errorMessage = null;
     });
-  } finally {
-    if (mounted) {
+
+    try {
+      var user = await AuthService().signIn(
+        username: _usernameController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (user.mustChangePassword) {
+        final changed = await Navigator.of(context).push<AppUser>(
+          MaterialPageRoute(builder: (_) => const PasswordScreen()),
+        );
+        if (!mounted) return;
+        if (changed == null) {
+          try {
+            await AuthService().signOut();
+          } catch (_) {
+            ApiClient.token = null;
+          }
+          return;
+        }
+        user = changed;
+      }
+      if (!mounted) return;
+      switch (user.role.toUpperCase()) {
+        case 'DRIVER':
+          await Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => DriverDashboard(user: user)),
+          );
+          break;
+
+        case 'DISPATCHER':
+          await Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => DispatcherDashboard(user: user)),
+          );
+          break;
+
+        case 'ADMIN':
+          await Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => AdminDashboard(user: user)),
+          );
+          break;
+
+        case 'IT':
+          await Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => ItDashboard(user: user)),
+          );
+          break;
+
+        default:
+          setState(() {
+            _errorMessage =
+                'Dashboard not available for role: ${user.roleDisplay}';
+          });
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
-        _isLoading = false;
+        _errorMessage = error.toString().replaceFirst('Exception: ', '');
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
-}
 
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    body: Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.local_taxi, size: 76),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Prime Time Taxi',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('Sign in to continue'),
-                    const SizedBox(height: 28),
-
-                    TextFormField(
-                      controller: _usernameController,
-                      autofillHints: const [AutofillHints.username],
-                      decoration: const InputDecoration(
-                        labelText: 'Username',
-                        prefixIcon: Icon(Icons.person_outline),
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Enter your username.';
-                        }
-
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      autofillHints: const [AutofillHints.password],
-                      onFieldSubmitted: (_) => _signIn(),
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                        ),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Enter your password.';
-                        }
-
-                        return null;
-                      },
-                    ),
-
-                    if (_errorMessage != null) ...[
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.local_taxi, size: 76),
                       const SizedBox(height: 16),
                       Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                        'Prime Time Taxi',
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Sign in to continue'),
+                      const SizedBox(height: 28),
+
+                      TextFormField(
+                        controller: _usernameController,
+                        autofillHints: const [AutofillHints.username],
+                        decoration: const InputDecoration(
+                          labelText: 'Username',
+                          prefixIcon: Icon(Icons.person_outline),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Enter your username.';
+                          }
+
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        autofillHints: const [AutofillHints.password],
+                        onFieldSubmitted: (_) => _signIn(),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Enter your password.';
+                          }
+
+                          return null;
+                        },
+                      ),
+
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 24),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _isLoading ? null : _signIn,
+                          icon: _isLoading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.login),
+                          label: Text(_isLoading ? 'Signing in…' : 'Sign In'),
                         ),
                       ),
                     ],
-
-                    const SizedBox(height: 24),
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _isLoading ? null : _signIn,
-                        icon: _isLoading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.login),
-                        label: Text(
-                          _isLoading ? 'Signing in…' : 'Sign In',
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
-}
-
+    );
   }
+}

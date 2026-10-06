@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import transaction
+from rest_framework.authtoken.models import Token
 from .models import AccountProfile, Role 
 
 def generate_username(first_name, last_name): 
@@ -14,6 +15,10 @@ def generate_username(first_name, last_name):
 
 @transaction.atomic
 def create_account(first_name, last_name, password, role, driver=None): 
+    if role not in Role.values:
+        raise ValueError('Choose a valid account role.')
+    if driver is not None and (role != Role.DRIVER or driver.user_id is not None):
+        raise ValueError('Only an unlinked driver can be attached to a new Driver account.')
     username = generate_username(first_name, last_name)
     user = User.objects.create_user(
         username=username,
@@ -36,6 +41,7 @@ def create_account(first_name, last_name, password, role, driver=None):
 def deactivate_account(user): 
     user.is_active = False
     user.save()
+    Token.objects.filter(user=user).delete()
     
 def reactivate_account(user): 
     user.is_active = True
@@ -44,12 +50,14 @@ def reactivate_account(user):
 def reset_password(user, new_password):
     user.set_password(new_password)
     user.save()
+    Token.objects.filter(user=user).delete()
     user.profile.must_change_password = True
     user.profile.save()
 
 def change_password(user, new_password):
     user.set_password(new_password)
     user.save()
+    Token.objects.filter(user=user).delete()
 
     user.profile.must_change_password = False
     user.profile.save()

@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>PrimeTime Taxi shares your real location with dispatch while you are clocked in.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Keep dispatch updated during your shift when PrimeTime Taxi is in the background.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Keep dispatch updated during your shift while the app is in the background.</string>
+    <key>UIBackgroundModes</key>
+    <array><string>location</string></array>
+    <key>PrimeTimeAPNSEnvironment</key><string>$(PRIMETIME_APNS_ENVIRONMENT)</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

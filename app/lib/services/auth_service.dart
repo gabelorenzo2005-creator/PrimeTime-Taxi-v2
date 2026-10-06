@@ -1,30 +1,34 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import '../models/app_user.dart';
+import 'api_client.dart';
 
 class AuthService {
-    static const String baseUrl = 'http://127.0.0.1:8000';
-    Future<AppUser> signIn({
-        required String username, 
-        required String password,
-    }) async {
-        final response = await http.post(
-            Uri.parse('$baseUrl/api/login/'),
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: jsonEncode({
-                'username': username, 
-                'password': password,
-            }),
-        );
+  static const baseUrl = ApiClient.baseUrl;
+  Future<AppUser> signIn({
+    required String username,
+    required String password,
+  }) async {
+    ApiClient.token = null;
+    final data = await ApiClient.request(
+      'login/',
+      method: 'POST',
+      body: {'username': username, 'password': password},
+    );
+    ApiClient.token = data['token'] as String;
+    return AppUser.fromJson(data);
+  }
 
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        
-        if (response.statusCode != 200) {
-            throw Exception(data['error'] ?? 'Unable to sign in.');
-        }
+  Future<AppUser> changePassword(String current, String password) async {
+    final data = await ApiClient.request(
+      'password/',
+      method: 'POST',
+      body: {'current_password': current, 'new_password': password},
+    );
+    ApiClient.token = data['token'] as String;
+    return AppUser.fromJson(data);
+  }
 
-        return AppUser.fromJson(data);
-    }
+  Future<void> signOut() async {
+    await ApiClient.request('logout/', method: 'POST');
+    ApiClient.token = null;
+  }
 }

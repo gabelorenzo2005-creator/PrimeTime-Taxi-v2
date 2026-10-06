@@ -15,7 +15,7 @@ class AppUser {
   final String roleDisplay;
   final bool mustChangePassword;
 
-  String get fullName => '$firstName $lastName'.trim();
+  String get fullName => '${firstName.trim()} ${lastName.trim()}';
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
     return AppUser(
